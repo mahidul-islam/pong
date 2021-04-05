@@ -3,17 +3,24 @@ module Main exposing (..)
 import Browser
 import Browser.Events exposing (onAnimationFrame)
 import Html exposing (Html, sub)
+import Json.Decode as Decode
 import Svg exposing (circle, rect, svg)
 import Svg.Attributes exposing (cx, cy, height, r, viewBox, width, x, y)
 
 
 type alias Model =
     { ball : Ball
-    , paddle : Paddle
+    , rightPaddle : Paddle
+    , leftPaddle : Paddle
     }
 
 
-type alias Paddle =
+type Paddle
+    = LeftPaddle PaddleInfo
+    | RightPaddle PaddleInfo
+
+
+type alias PaddleInfo =
     { x : Int
     , y : Int
     , width : Int
@@ -38,9 +45,9 @@ initBall =
     }
 
 
-initPaddle : Paddle
-initPaddle =
-    { x = 480
+initPaddle : Int -> PaddleInfo
+initPaddle initaialX =
+    { x = initaialX
     , y = 225
     , width = 10
     , height = 50
@@ -50,7 +57,8 @@ initPaddle =
 init : Flags -> ( Model, Cmd Msg )
 init _ =
     ( { ball = initBall
-      , paddle = initPaddle
+      , rightPaddle = RightPaddle <| initPaddle 480
+      , leftPaddle = LeftPaddle <| initPaddle 10
       }
     , Cmd.none
     )
@@ -58,6 +66,14 @@ init _ =
 
 type Msg
     = OnAnimationFrame Float
+    | KeyDown PlayerAction
+
+
+type PlayerAction
+    = RightPaddleUp
+    | RightPaddleDown
+    | LeftPaddleUp
+    | LeftPaddleDown
 
 
 type alias Flags =
@@ -66,7 +82,36 @@ type alias Flags =
 
 subscriptions : Model -> Sub Msg
 subscriptions _ =
-    Browser.Events.onAnimationFrameDelta OnAnimationFrame
+    -- Browser.Events.onAnimationFrameDelta OnAnimationFrame
+    Sub.batch
+        [ Browser.Events.onAnimationFrameDelta OnAnimationFrame
+        , Browser.Events.onKeyDown (Decode.map KeyDown keyDecoder)
+        ]
+
+
+keyDecoder : Decode.Decoder PlayerAction
+keyDecoder =
+    Decode.field "key" Decode.string
+        |> Decode.andThen keyToPlayerAction
+
+
+keyToPlayerAction : String -> Decode.Decoder PlayerAction
+keyToPlayerAction keyString =
+    case keyString of
+        "ArrowUp" ->
+            Decode.succeed RightPaddleUp
+
+        "ArrowDown" ->
+            Decode.succeed RightPaddleDown
+
+        "e" ->
+            Decode.succeed LeftPaddleUp
+
+        "d" ->
+            Decode.succeed LeftPaddleDown
+
+        _ ->
+            Decode.fail "not a event we care about"
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -78,7 +123,8 @@ update msg model =
                     model.ball
 
                 shouldBounce =
-                    shouldBallBounce model.paddle model.ball
+                    shouldBallBounce model.rightPaddle model.ball
+                        || shouldBallBounce model.leftPaddle model.ball
 
                 speedX =
                     if shouldBounce then
@@ -92,12 +138,51 @@ update msg model =
             in
             ( { model | ball = updatedBall }, Cmd.none )
 
+        KeyDown playerAction ->
+            case playerAction of
+                RightPaddleUp ->
+                    ( { model | rightPaddle = model.rightPaddle |> updatePaddle -10 }
+                    , Cmd.none
+                    )
+
+                RightPaddleDown ->
+                    ( { model | rightPaddle = model.rightPaddle |> updatePaddle 10 }
+                    , Cmd.none
+                    )
+
+                LeftPaddleUp ->
+                    ( { model | leftPaddle = model.leftPaddle |> updatePaddle -10 }
+                    , Cmd.none
+                    )
+
+                LeftPaddleDown ->
+                    ( { model | leftPaddle = model.leftPaddle |> updatePaddle 10 }
+                    , Cmd.none
+                    )
+
+
+updatePaddle : Int -> Paddle -> Paddle
+updatePaddle amount paddle =
+    case paddle of
+        RightPaddle paddleInfo ->
+            { paddleInfo | y = paddleInfo.y + amount } |> RightPaddle
+
+        LeftPaddle paddleInfo ->
+            { paddleInfo | y = paddleInfo.y + amount } |> LeftPaddle
+
 
 shouldBallBounce : Paddle -> Ball -> Bool
 shouldBallBounce paddle ball =
-    (ball.x + ball.radious >= paddle.x)
-        && (ball.y >= paddle.y)
-        && (ball.y <= paddle.y + 50)
+    case paddle of
+        LeftPaddle { x, y, width, height } ->
+            (ball.x - ball.radious <= x + width)
+                && (ball.y >= y)
+                && (ball.y <= y + 50)
+
+        RightPaddle { x, y, width, height } ->
+            (ball.x + ball.radious >= x)
+                && (ball.y >= y)
+                && (ball.y <= y + 50)
 
 
 main : Program Flags Model Msg
@@ -111,7 +196,7 @@ main =
 
 
 view : Model -> Svg.Svg Msg
-view { ball, paddle } =
+view { ball, rightPaddle, leftPaddle } =
     svg
         [ width "500"
         , height "500"
@@ -119,17 +204,27 @@ view { ball, paddle } =
         , Svg.Attributes.style "background: #efefef"
         ]
         [ viewBall ball
-        , viewPaddle paddle
+        , viewPaddle rightPaddle
+        , viewPaddle leftPaddle
         ]
 
 
 viewPaddle : Paddle -> Svg.Svg Msg
 viewPaddle paddle =
+    let
+        paddleInfo =
+            case paddle of
+                LeftPaddle info ->
+                    info
+
+                RightPaddle info ->
+                    info
+    in
     rect
-        [ x <| String.fromInt paddle.x
-        , y <| String.fromInt paddle.y
-        , width <| String.fromInt paddle.width
-        , height <| String.fromInt paddle.height
+        [ x <| String.fromInt paddleInfo.x
+        , y <| String.fromInt paddleInfo.y
+        , width <| String.fromInt paddleInfo.width
+        , height <| String.fromInt paddleInfo.height
         ]
         []
 
